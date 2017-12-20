@@ -3,10 +3,74 @@ import numpy as np
 from collections import OrderedDict
 import os
 import shutil
+import logging
+
 from matplotlib import pyplot
 
+"""utils"""
+def crop_to_shape(data, shape):
+    """
+    Crops the array to the given image shape by removing the border (expects a tensor of shape [batches, nx, ny, channels].
 
-## layers ##
+    :param data: the array to crop
+    :param shape: the target shape
+    """
+    offset0 = (data.shape[1] - shape[1]) // 2
+    offset1 = (data.shape[2] - shape[2]) // 2
+    return data[:, offset0:(-offset0), offset1:(-offset1)]
+
+
+def combine_img_prediction(data, gt, pred):
+    """
+    Combines the data, grouth thruth and the prediction into one rgb image
+
+    :param data: the data tensor
+    :param gt: the ground thruth tensor
+    :param pred: the prediction tensor
+
+    :returns img: the concatenated rgb image
+    """
+    ny = pred.shape[2]
+    ch = data.shape[3]
+    img = np.concatenate((to_rgb(crop_to_shape(data, pred.shape).reshape(-1, ny, ch)),
+                          to_rgb(crop_to_shape(gt[..., 1], pred.shape).reshape(-1, ny, 1)),
+                          to_rgb(pred[..., 1].reshape(-1, ny, 1))), axis=1)
+    return img
+
+
+def to_rgb(img):
+    """
+    Converts the given array into a RGB image. If the number of channels is not
+    3 the array is tiled such that it has 3 channels. Finally, the values are
+    rescaled to [0,255)
+
+    :param img: the array to convert [nx, ny, channels]
+
+    :returns img: the rgb image [nx, ny, 3]
+    """
+    img = np.atleast_3d(img)
+    channels = img.shape[2]
+    if channels < 3:
+        img = np.tile(img, 3)
+
+    img[np.isnan(img)] = 0
+    img -= np.amin(img)
+    img /= np.amax(img)
+    img *= 255
+    return img
+
+
+def save_image(img, path):
+    """
+    Writes the image to disk
+
+    :param img: the rgb image to save
+    :param path: the target path
+    """
+    #Image.fromarray(img.round().astype(np.uint8)).save(path, 'JPEG', dpi=[300, 300], quality=90)
+    return 0
+
+""" layers """
 def weight_variable(shape, stddev=0.1):
     initial = tf.truncated_normal(shape, stddev=stddev)
     return tf.Variable(initial)
@@ -67,8 +131,7 @@ def cross_entropy(y_, output_map):
 
 ##model##
 
-def create_conv_net(x, keep_prob, channels, n_class, layers=3, features_root=16, filter_size=3, pool_size=2,
-                    summaries=True):
+def create_conv_net(x, keep_prob, channels, n_class, layers=3, features_root=16, filter_size=3, pool_size=2):
     """
     Creates a new convolutional unet for the given parametrization.
 
@@ -430,7 +493,7 @@ class Trainer(object):
                         _, loss, lr, gradients = sess.run(
                             (self.optimizer, self.net.cost, self.learning_rate_node, self.net.gradients_node),
                             feed_dict={self.net.x: batch_x,
-                                       self.net.y: util.crop_to_shape(batch_y, pred_shape),
+                                       self.net.y: crop_to_shape(batch_y, pred_shape),
                                        self.net.keep_prob: dropout})
 
                         if self.net.summaries and self.norm_grads:
@@ -440,7 +503,7 @@ class Trainer(object):
 
                         if step % display_step == 0:
                             self.output_minibatch_stats(sess, summary_writer, step, batch_x,
-                                                        util.crop_to_shape(batch_y, pred_shape))
+                                                        crop_to_shape(batch_y, pred_shape))
 
                         total_loss += loss
 
@@ -448,7 +511,6 @@ class Trainer(object):
                     self.store_prediction(sess, test_x, test_y, "epoch_%s" % epoch)
 
                     save_path = self.net.save(sess, save_path)
-                logging.info("Optimization Finished!")
 
                 return save_path
 
@@ -459,16 +521,12 @@ class Trainer(object):
             pred_shape = prediction.shape
 
             loss = sess.run(self.net.cost, feed_dict={self.net.x: batch_x,
-                                                      self.net.y: util.crop_to_shape(batch_y, pred_shape),
+                                                      self.net.y: crop_to_shape(batch_y, pred_shape),
                                                       self.net.keep_prob: 1.})
 
-            logging.info("Verification error= {:.1f}%, loss= {:.4f}".format(error_rate(prediction,
-                                                                                       util.crop_to_shape(batch_y,
-                                                                                                          prediction.shape)),
-                                                                            loss))
 
-            img = util.combine_img_prediction(batch_x, batch_y, prediction)
-            util.save_image(img, "%s/%s.jpg" % (self.prediction_path, name))
+            img = combine_img_prediction(batch_x, batch_y, prediction)
+            save_image(img, "%s/%s.jpg" % (self.prediction_path, name)) #TODO: save 3D image
 
             return pred_shape
 
@@ -496,37 +554,36 @@ class Trainer(object):
                                                                                                                    predictions,
                                                                                                                    batch_y)))
 
-    def _update_avg_gradients(avg_gradients, gradients, step):
-        if avg_gradients is None:
-            avg_gradients = [np.zeros_like(gradient) for gradient in gradients]
-        for i in range(len(gradients)):
-            avg_gradients[i] = (avg_gradients[i] * (1.0 - (1.0 / (step + 1)))) + (gradients[i] / (step + 1))
-
+def _update_avg_gradients(avg_gradients, gradients, step):
+    if avg_gradients is None:
+        avg_gradients = [np.zeros_like(gradient) for gradient in gradients]
+    for i in range(len(gradients)):
+        avg_gradients[i] = (avg_gradients[i] * (1.0 - (1.0 / (step + 1)))) + (gradients[i] / (step + 1))
         return avg_gradients
 
-    def error_rate(predictions, labels):
-        """
-        Return the error rate based on dense predictions and 1-hot labels.
-        """
+def error_rate(predictions, labels):
+    """
+    Return the error rate based on dense predictions and 1-hot labels.
+    """
 
-        return 100.0 - (
-                100.0 *
-                np.sum(np.argmax(predictions, 3) == np.argmax(labels, 3)) /
-                (predictions.shape[0] * predictions.shape[1] * predictions.shape[2]))
+    return 100.0 - (
+            100.0 *
+            np.sum(np.argmax(predictions, 3) == np.argmax(labels, 3)) /
+            (predictions.shape[0] * predictions.shape[1] * predictions.shape[2]))
 
-    def get_image_summary(img, idx=0):
-        """
-        Make an image summary for 4d tensor image with index idx
-        """
+def get_image_summary(img, idx=0):
+    """
+    Make an image summary for 4d tensor image with index idx
+    """
 
-        V = tf.slice(img, (0, 0, 0, idx), (1, -1, -1, 1))
-        V -= tf.reduce_min(V)
-        V /= tf.reduce_max(V)
-        V *= 255
+    V = tf.slice(img, (0, 0, 0, idx), (1, -1, -1, 1))
+    V -= tf.reduce_min(V)
+    V /= tf.reduce_max(V)
+    V *= 255
 
-        img_w = tf.shape(img)[1]
-        img_h = tf.shape(img)[2]
-        V = tf.reshape(V, tf.stack((img_w, img_h, 1)))
-        V = tf.transpose(V, (2, 0, 1))
-        V = tf.reshape(V, tf.stack((-1, img_w, img_h, 1)))
-        return V
+    img_w = tf.shape(img)[1]
+    img_h = tf.shape(img)[2]
+    V = tf.reshape(V, tf.stack((img_w, img_h, 1)))
+    V = tf.transpose(V, (2, 0, 1))
+    V = tf.reshape(V, tf.stack((-1, img_w, img_h, 1)))
+    return V
