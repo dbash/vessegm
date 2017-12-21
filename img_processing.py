@@ -31,6 +31,17 @@ def get_images(folder_name, normalize=False):
 
     return X_dict
 
+def get_mhd_list(folder):
+    pattern = "*.mhd"
+    f_list = []
+
+    for path, subdirs, files in os.walk(folder):
+        for name in files:
+            if fnmatch(name, pattern):
+                fpath = os.path.join(path, name)
+                f_list.append(fpath)
+    return f_list
+
 def get_dataset(img_folder, mask_folder, normalize=False):
     pattern = "*.mhd"
     img_dict = {}
@@ -74,7 +85,11 @@ def save_as_gif(filepath,gifpath):
         for i in range(n_slices):
             writer.append_data(img_arr[i])
     print("Saved image to %s."%gifpath)
+    del img_arr, img
 
+
+if __name__ == '__main__':
+    pass
 
 
 """testing"""
@@ -84,3 +99,4 @@ gif_path = "/scratch/vessel_1.gif"
 #save_as_gif(mhd_path, gif_path)
 #X, y = get_dataset('/scratch/VESSEL12/images', '/scratch/VESSEL12/masks')
 #print(y['VESSEL12_01.mhd'].shape)
+
