@@ -32,10 +32,11 @@ class LungDataProvider(BaseDataProvider):
         if self.n_class == 2:
             nz = label.shape[1]
             nx = label.shape[2]
-            ny = label.shape[2]
-            labels = np.zeros((nz, nx, ny, self.n_class), dtype=np.float32)
-            labels[..., 1] = label
-            labels[..., 0] = 1 - label
+            ny = label.shape[3]
+            labels = np.zeros((1, nz, nx, ny, self.n_class), dtype=np.float32)
+            #print(labels.shape)
+            labels[..., 1] = label[..., 0]
+            labels[..., 0] = 1 - label[..., 0]
             return labels
 
         return label

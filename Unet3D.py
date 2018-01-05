@@ -4,8 +4,9 @@ from collections import OrderedDict
 import os
 import shutil
 import logging
+from tensorflow.python import debug as tf_debug
 
-from matplotlib import pyplot
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
 """utils"""
 def crop_to_shape(data, shape):
@@ -17,7 +18,8 @@ def crop_to_shape(data, shape):
     """
     offset0 = (data.shape[1] - shape[1]) // 2
     offset1 = (data.shape[2] - shape[2]) // 2
-    return data[:, offset0:(-offset0), offset1:(-offset1)]
+    offset2 = (data.shape[3] - shape[3]) // 2
+    return data[:, offset0:(-offset0), offset1:(-offset1), offset2:(-offset2)]
 
 
 def combine_img_prediction(data, gt, pred):
@@ -30,11 +32,7 @@ def combine_img_prediction(data, gt, pred):
 
     :returns img: the concatenated rgb image
     """
-    ny = pred.shape[2]
-    ch = data.shape[3]
-    img = np.concatenate((to_rgb(crop_to_shape(data, pred.shape).reshape(-1, ny, ch)),
-                          to_rgb(crop_to_shape(gt[..., 1], pred.shape).reshape(-1, ny, 1)),
-                          to_rgb(pred[..., 1].reshape(-1, ny, 1))), axis=1)
+    img = np.concatenate((to_rgb(data[..., 0]), to_rgb(gt[..., 1]), to_rgb(pred[..., 1])), axis=1)
     return img
 
 
@@ -86,29 +84,34 @@ def bias_variable(shape):
 
 
 def conv3d(x, W, keep_prob_):
-    conv_3d = tf.nn.conv3d(x, W, strides=[1, 1, 1, 1, 1], padding='VALID')
+    # x = tf.Print(x, [tf.shape(x)])
+    conv_3d = tf.nn.conv3d(x, W, strides=[1, 1, 1, 1, 1], padding='VALID', name='conv3d')
+    print(conv_3d)
     return tf.nn.dropout(conv_3d, keep_prob_)
 
 
 def deconv3d(x, W, stride):
     x_shape = tf.shape(x)
     output_shape = tf.stack([x_shape[0], x_shape[1] * 2, x_shape[2] * 2, x_shape[3] * 2, x_shape[4] // 2])
-    return tf.nn.conv3d_transpose(x, W, output_shape, strides=[1, stride, stride, stride, 1], padding='VALID')
+    a = tf.nn.conv3d_transpose(x, W, output_shape, strides=[1, stride, stride, stride, 1], padding='VALID',
+                               name='deconv3d')
+    print(a)
+    return a
 
 
 def max_pool(x, n):
-    return tf.nn.max_pool(x, ksize=[1, n, n, n, 1], strides=[1, n, n, n, 1], padding='VALID')
+    return tf.nn.max_pool3d(x, ksize=[1, n, n, n, 1], strides=[1, n, n, n, 1], padding='VALID')
 
 
 def crop_and_concat(x1, x2):
     x1_shape = tf.shape(x1)
     x2_shape = tf.shape(x2)
     # offsets for the top left corner of the crop
-    offsets = [0, abs(x1_shape[1] - x2_shape[1]) // 2, abs(x1_shape[2] - x2_shape[2]) // 2,
-               abs(x1_shape[3] - x2_shape[3]) // 2, 0]
+    offsets = [0, (x1_shape[1] - x2_shape[1]) // 2, (x1_shape[2] - x2_shape[2]) // 2,
+               (x1_shape[3] - x2_shape[3]) // 2, 0]
     size = [-1, x2_shape[1], x2_shape[2], x2_shape[3], -1]
     x1_crop = tf.slice(x1, offsets, size)
-    return tf.concat([x1_crop, x2], 3)
+    return tf.concat([x1_crop, x2], 4)
 
 
 def pixel_wise_softmax(output_map):
@@ -131,7 +134,7 @@ def cross_entropy(y_, output_map):
 
 ##model##
 
-def create_conv_net(x, keep_prob, channels, n_class, layers=3, features_root=16, filter_size=3, pool_size=2):
+def create_conv_net(x, keep_prob, channels, n_class, layers=2, features_root=16, filter_size=3, pool_size=2):
     """
     Creates a new convolutional unet for the given parametrization.
 
@@ -145,6 +148,13 @@ def create_conv_net(x, keep_prob, channels, n_class, layers=3, features_root=16,
     :param pool_size: size of the max pooling operation
     :param summaries: Flag if summaries should be created
     """
+
+    logging.info(
+        "Layers {layers}, features {features}, filter size {filter_size}x{filter_size}, pool size: {pool_size}x{pool_size}".format(
+            layers=layers,
+            features=features_root,
+            filter_size=filter_size,
+            pool_size=pool_size))
 
     # Placeholder for the input image
     nz = tf.shape(x)[1]
@@ -170,9 +180,9 @@ def create_conv_net(x, keep_prob, channels, n_class, layers=3, features_root=16,
         features = 2 ** layer * features_root
         stddev = np.sqrt(2 / (filter_size ** 2 * features))
         if layer == 0:
-            w1 = weight_variable([filter_size, filter_size,filter_size, channels, features], stddev)
+            w1 = weight_variable([filter_size, filter_size, filter_size, channels, features], stddev)
         else:
-            w1 = weight_variable([filter_size, filter_size,filter_size, features // 2, features], stddev)
+            w1 = weight_variable([filter_size, filter_size, filter_size, features // 2, features], stddev)
 
         w2 = weight_variable([filter_size, filter_size, filter_size, features, features], stddev)
         b1 = bias_variable([features])
@@ -225,7 +235,7 @@ def create_conv_net(x, keep_prob, channels, n_class, layers=3, features_root=16,
         size -= 4
 
     # Output Map
-    weight = weight_variable([1, 1,1, features_root, n_class], stddev) #!!!
+    weight = weight_variable([1, 1, 1, features_root, n_class], stddev) #!!!
     bias = bias_variable([n_class])
     conv = conv3d(in_node, weight, tf.constant(1.0))
     output_map = tf.nn.relu(conv + bias)
@@ -244,7 +254,7 @@ def create_conv_net(x, keep_prob, channels, n_class, layers=3, features_root=16,
     return output_map, variables, int(in_size - size)
 
 
-class Unet(object):
+class Unet3D(object):
     """
     A unet implementation
 
@@ -259,12 +269,15 @@ class Unet(object):
 
         self.n_class = n_class
 
-        self.x = tf.placeholder("float", shape=[None,None, None, None, channels])
-        self.y = tf.placeholder("float", shape=[None,None, None, None, n_class])
+        self.x = tf.placeholder("float", shape=[None, None, None, None, channels], name='x')
+        self.y = tf.placeholder("float", shape=[None, None, None, None, n_class], name='y')
+        # self.x = tf.placeholder("float", shape=[None, None, None, None, channels])
+        # self.y = tf.placeholder("float", shape=[None, None, None, None, n_class])
         self.keep_prob = tf.placeholder(tf.float32)  # dropout (keep probability)
 
         logits, self.variables, self.offset = create_conv_net(self.x, self.keep_prob, channels, n_class, **kwargs)
 
+        self.logits = logits
         self.cost = self._get_cost(logits, cost, cost_kwargs)
 
         self.gradients_node = tf.gradients(self.cost, self.variables)
@@ -284,10 +297,17 @@ class Unet(object):
         regularizer: power of the L2 regularizers added to the loss function
         """
 
+        logits = tf.Print(logits, [tf.shape(logits)], message='UUUUUUU!',  summarize=100)
+        y_printed = tf.Print(self.y, [tf.shape(self.y)], message='AAAAA!', summarize=100)
+
         flat_logits = tf.reshape(logits, [-1, self.n_class])
-        flat_labels = tf.reshape(self.y, [-1, self.n_class])
+        flat_labels = tf.reshape(y_printed, [-1, self.n_class])
         if cost_name == "cross_entropy":
             class_weights = cost_kwargs.pop("class_weights", None)
+
+            softmax_crossent = tf.nn.softmax_cross_entropy_with_logits(
+                logits=flat_logits, labels=flat_labels
+            )
 
             if class_weights is not None:
                 class_weights = tf.constant(np.array(class_weights, dtype=np.float32))
@@ -295,15 +315,13 @@ class Unet(object):
                 weight_map = tf.multiply(flat_labels, class_weights)
                 weight_map = tf.reduce_sum(weight_map, axis=1)
 
-                loss_map = tf.nn.softmax_cross_entropy_with_logits(logits=flat_logits,
-                                                                   labels=flat_labels)
+                loss_map = softmax_crossent
                 weighted_loss = tf.multiply(loss_map, weight_map)
 
                 loss = tf.reduce_mean(weighted_loss)
 
             else:
-                loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=flat_logits,
-                                                                              labels=flat_labels))
+                loss = tf.reduce_mean(softmax_crossent)
         elif cost_name == "dice_coefficient":
             eps = 1e-5
             prediction = pixel_wise_softmax_2(logits)
@@ -365,6 +383,7 @@ class Unet(object):
 
         saver = tf.train.Saver()
         saver.restore(sess, model_path)
+        logging.info("Model restored from file: %s" % model_path)
 
 class Trainer(object):
         """
@@ -378,7 +397,7 @@ class Trainer(object):
 
         """
 
-        verification_batch_size = 4
+        verification_batch_size = 1
 
         def __init__(self, net, batch_size=1, norm_grads=False, optimizer="momentum", opt_kwargs={}):
             self.net = net
@@ -417,17 +436,17 @@ class Trainer(object):
 
             self.norm_gradients_node = tf.Variable(tf.constant(0.0, shape=[len(self.net.gradients_node)]))
 
-            if self.net.summaries and self.norm_grads:
-                tf.summary.histogram('norm_grads', self.norm_gradients_node)
+            #if self.net.summaries and self.norm_grads:
+            #   tf.summary.histogram('norm_grads', self.norm_gradients_node)
 
-            tf.summary.scalar('loss', self.net.cost)
-            tf.summary.scalar('cross_entropy', self.net.cross_entropy)
-            tf.summary.scalar('accuracy', self.net.accuracy)
+            #tf.summary.scalar('loss', self.net.cost)
+            #tf.summary.scalar('cross_entropy', self.net.cross_entropy)
+            #tf.summary.scalar('accuracy', self.net.accuracy)
 
             self.optimizer = self._get_optimizer(training_iters, global_step)
-            tf.summary.scalar('learning_rate', self.learning_rate_node)
+            #tf.summary.scalar('learning_rate', self.learning_rate_node)
 
-            self.summary_op = tf.summary.merge_all()
+            #self.summary_op = tf.summary.merge_all()
             init = tf.global_variables_initializer()
 
             self.prediction_path = prediction_path
@@ -435,13 +454,18 @@ class Trainer(object):
             output_path = os.path.abspath(output_path)
 
             if not restore:
+                logging.info("Removing '{:}'".format(abs_prediction_path))
                 shutil.rmtree(abs_prediction_path, ignore_errors=True)
+                logging.info("Removing '{:}'".format(output_path))
                 shutil.rmtree(output_path, ignore_errors=True)
 
+
             if not os.path.exists(abs_prediction_path):
+                logging.info("Allocating '{:}'".format(abs_prediction_path))
                 os.makedirs(abs_prediction_path)
 
             if not os.path.exists(output_path):
+                logging.info("Allocating '{:}'".format(output_path))
                 os.makedirs(output_path)
 
             return init
@@ -478,16 +502,18 @@ class Trainer(object):
                     if ckpt and ckpt.model_checkpoint_path:
                         self.net.restore(sess, ckpt.model_checkpoint_path)
 
-                test_x, test_y = data_provider(self.verification_batch_size)
+                test_x, test_y = data_provider()
+
                 pred_shape = self.store_prediction(sess, test_x, test_y, "_init")
 
                 summary_writer = tf.summary.FileWriter(output_path, graph=sess.graph)
+                logging.info("Start optimization")
 
                 avg_gradients = None
                 for epoch in range(epochs):
                     total_loss = 0
                     for step in range((epoch * training_iters), ((epoch + 1) * training_iters)):
-                        batch_x, batch_y = data_provider(self.batch_size)
+                        batch_x, batch_y = data_provider()
 
                         # Run optimization op (backprop)
                         _, loss, lr, gradients = sess.run(
@@ -508,24 +534,35 @@ class Trainer(object):
                         total_loss += loss
 
                     self.output_epoch_stats(epoch, total_loss, training_iters, lr)
-                    self.store_prediction(sess, test_x, test_y, "epoch_%s" % epoch)
+                    #self.store_prediction(sess, test_x, test_y, "epoch_%s" % epoch)
 
                     save_path = self.net.save(sess, save_path)
 
+                logging.info("Optimization Finished!")
                 return save_path
 
         def store_prediction(self, sess, batch_x, batch_y, name):
+            #t = tf.get_default_graph().get_tensor_by_name('deconv3d:0')
+            #print('shapes', sess.run(tf.shape(t), feed_dict={
+            #    self.net.x: batch_x, self.net.y: batch_y, self.net.keep_prob: 1.
+            #}))
+
             prediction = sess.run(self.net.predicter, feed_dict={self.net.x: batch_x,
                                                                  self.net.y: batch_y,
                                                                  self.net.keep_prob: 1.})
             pred_shape = prediction.shape
-
+            y_cropped = crop_to_shape(batch_y, pred_shape)
+            x_cropped = crop_to_shape(batch_x, pred_shape)
+            print(y_cropped.shape, "KKKKKKKKKKKKKK")
             loss = sess.run(self.net.cost, feed_dict={self.net.x: batch_x,
-                                                      self.net.y: crop_to_shape(batch_y, pred_shape),
+                                                      self.net.y: y_cropped,
                                                       self.net.keep_prob: 1.})
 
-
-            img = combine_img_prediction(batch_x, batch_y, prediction)
+            logging.info("Verification error= {:.1f}%, loss= {:.4f}".format(error_rate(prediction,
+                                                                                       crop_to_shape(batch_y,
+                                                                                                          prediction.shape)),
+                                                                            loss))
+            img = combine_img_prediction(x_cropped, y_cropped, prediction)
             save_image(img, "%s/%s.jpg" % (self.prediction_path, name)) #TODO: save 3D image
 
             return pred_shape
@@ -576,14 +613,16 @@ def get_image_summary(img, idx=0):
     Make an image summary for 4d tensor image with index idx
     """
 
-    V = tf.slice(img, (0, 0, 0, idx), (1, -1, -1, 1))
+    V = tf.slice(img, (0, 0, 0, 0, idx), (1, -1, -1,-1, 1))
     V -= tf.reduce_min(V)
     V /= tf.reduce_max(V)
     V *= 255
 
-    img_w = tf.shape(img)[1]
-    img_h = tf.shape(img)[2]
-    V = tf.reshape(V, tf.stack((img_w, img_h, 1)))
+    img_d = tf.shape(img)[1]
+    img_w = tf.shape(img)[2]
+    img_h = tf.shape(img)[3]
+
+    V = tf.reshape(V, tf.stack((img_d, img_w, img_h, 1)))
     V = tf.transpose(V, (2, 0, 1))
-    V = tf.reshape(V, tf.stack((-1, img_w, img_h, 1)))
+    V = tf.reshape(V, tf.stack((-1, img_d, img_w, img_h, 1)))
     return V

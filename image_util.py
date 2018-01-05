@@ -46,23 +46,25 @@ class BaseDataProvider(object):
     def _load_data_and_label(self):
         data, label = self._next_data()
             
-        train_data = self._process_data(data)
+        #train_data = self._process_data(data)
         labels = self._process_labels(label)
         
-        train_data, labels = self._post_process(train_data, labels)
-        
-        nx = train_data.shape[1]
-        ny = train_data.shape[0]
+        #train_data, labels = self._post_process(train_data, labels)
 
-        return train_data.reshape(1, ny, nx, self.channels), labels.reshape(1, ny, nx, self.n_class),
+        nz = data.shape[1]
+        nx = data.shape[2]
+        ny = data.shape[3]
+
+        return data.reshape(1, nz, nx, ny, self.channels), labels.reshape(1, nz, nx, ny, self.n_class),
     
     def _process_labels(self, label):
         if self.n_class == 2:
-            nx = label.shape[1]
-            ny = label.shape[0]
-            labels = np.zeros((ny, nx, self.n_class), dtype=np.float32)
-            labels[..., 1] = label
-            labels[..., 0] = ~label
+            nz = label.shape[1]
+            nx = label.shape[2]
+            ny = label.shape[3]
+            labels = np.zeros((nz, nx, ny, self.n_class), dtype=np.float32)
+            labels[..., 1] = label[0, ..., 0]
+            labels[..., 0] = 1 - label[0, ..., 0]
             return labels
         
         return label
@@ -85,112 +87,19 @@ class BaseDataProvider(object):
     
     def __call__(self, n):
         train_data, labels = self._load_data_and_label()
-        nx = train_data.shape[1]
-        ny = train_data.shape[2]
+        nz = train_data.shape[1]
+        nx = train_data.shape[2]
+        ny = train_data.shape[3]
     
-        X = np.zeros((n, nx, ny, self.channels))
-        Y = np.zeros((n, nx, ny, self.n_class))
+        X = np.zeros((n,nz, nx, ny, self.channels))
+        Y = np.zeros((n, nz, nx, ny, self.n_class))
     
         X[0] = train_data
         Y[0] = labels
         for i in range(1, n):
             train_data, labels = self._load_data_and_label()
-            X[i] = train_data
-            Y[i] = labels
+            X[i] = train_data[0, ...]
+            Y[i] = labels[0, ...]
     
         return X, Y
-    
-class SimpleDataProvider(BaseDataProvider):
-    """
-    A simple data provider for numpy arrays. 
-    Assumes that the data and label are numpy array with the dimensions
-    data `[n, X, Y, channels]`, label `[n, X, Y, classes]`. Where
-    `n` is the number of images, `X`, `Y` the size of the image.
 
-    :param data: data numpy array. Shape=[n, X, Y, channels]
-    :param label: label numpy array. Shape=[n, X, Y, classes]
-    :param a_min: (optional) min value used for clipping
-    :param a_max: (optional) max value used for clipping
-    :param channels: (optional) number of channels, default=1
-    :param n_class: (optional) number of classes, default=2
-    
-    """
-    
-    def __init__(self, data, label, a_min=None, a_max=None, channels=1, n_class = 2):
-        super(SimpleDataProvider, self).__init__(a_min, a_max)
-        self.data = data
-        self.label = label
-        self.file_count = data.shape[0]
-        self.n_class = n_class
-        self.channels = channels
-
-    def _next_data(self):
-        idx = np.random.choice(self.file_count)
-        return self.data[idx], self.label[idx]
-
-
-class ImageDataProvider(BaseDataProvider):
-    """
-    Generic data provider for images, supports gray scale and colored images.
-    Assumes that the data images and label images are stored in the same folder
-    and that the labels have a different file suffix 
-    e.g. 'train/fish_1.tif' and 'train/fish_1_mask.tif'
-
-    Usage:
-    data_provider = ImageDataProvider("..fishes/train/*.tif")
-        
-    :param search_path: a glob search pattern to find all data and label images
-    :param a_min: (optional) min value used for clipping
-    :param a_max: (optional) max value used for clipping
-    :param data_suffix: suffix pattern for the data images. Default '.tif'
-    :param mask_suffix: suffix pattern for the label images. Default '_mask.tif'
-    :param shuffle_data: if the order of the loaded file path should be randomized. Default 'True'
-    :param channels: (optional) number of channels, default=1
-    :param n_class: (optional) number of classes, default=2
-    
-    """
-    
-    def __init__(self, search_path, a_min=None, a_max=None, data_suffix=".tif", mask_suffix='_mask.tif', shuffle_data=True, n_class = 2):
-        super(ImageDataProvider, self).__init__(a_min, a_max)
-        self.data_suffix = data_suffix
-        self.mask_suffix = mask_suffix
-        self.file_idx = -1
-        self.shuffle_data = shuffle_data
-        self.n_class = n_class
-        
-        self.data_files = self._find_data_files(search_path)
-        
-        if self.shuffle_data:
-            np.random.shuffle(self.data_files)
-        
-        assert len(self.data_files) > 0, "No training files"
-        print("Number of files used: %s" % len(self.data_files))
-        
-        img = self._load_file(self.data_files[0])
-        self.channels = 1 if len(img.shape) == 2 else img.shape[-1]
-        
-    def _find_data_files(self, search_path):
-        all_files = glob.glob(search_path)
-        return [name for name in all_files if self.data_suffix in name and not self.mask_suffix in name]
-    
-    
-    def _load_file(self, path, dtype=np.float32):
-        return np.array(Image.open(path), dtype)
-        # return np.squeeze(cv2.imread(image_name, cv2.IMREAD_GRAYSCALE))
-
-    def _cylce_file(self):
-        self.file_idx += 1
-        if self.file_idx >= len(self.data_files):
-            self.file_idx = 0 
-            if self.shuffle_data:
-                np.random.shuffle(self.data_files)
-        
-    def _next_data(self):
-        self._cylce_file()
-        image_name = self.data_files[self.file_idx]
-        label_name = image_name.replace(self.data_suffix, self.mask_suffix)
-        
-        img = self._load_file(image_name, np.float32)
-        label = self._load_file(label_name, np.bool)
-    
-        return img,label
