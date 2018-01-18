@@ -5,6 +5,7 @@ import SimpleITK
 import glob
 import os
 import imageio
+from PIL import Image, ImageSequence
 from fnmatch import fnmatch
 import csv
 
@@ -21,8 +22,8 @@ def get_image_array(mhd_file, normalize=False):
 def normalize(img):
     min = img.min()
     max = img.max()
-    dif = max - min
-    st_img = (img - min) * 255.0 / dif
+    dif = max - min + 0.0005
+    st_img = (img - min) * 255.0 // dif
     return st_img
 
 
@@ -40,8 +41,7 @@ def get_images(folder_name, normalize=False):
 
     return X_dict
 
-def get_mhd_list(folder):
-    pattern = "*.mhd"
+def get_file_list(folder, pattern='*.mhd'):
     f_list = []
 
     for path, subdirs, files in os.walk(folder):
@@ -127,6 +127,15 @@ def save_array_as_gif(img_arr,gifpath):
             writer.append_data(img_arr[i])
     print("Saved image to %s."%gifpath)
     del img_arr
+
+def get_array_from_gif(filepath, norm=False):
+    img = Image.open(filepath)
+    frames = [np.asarray(frame.copy()) for frame in ImageSequence.Iterator(img)]
+    img_arr = np.array(frames)
+    del img, frames
+    if norm:
+        return normalize(img_arr)
+    return img_arr
 
 
 def crop_ROI(img):
@@ -289,10 +298,11 @@ if __name__ == '__main__':
 img_mhd = "/scratch/VESSEL12/images/01/VESSEL12_01.mhd"
 label_mhd = "/scratch/VESSEL12/masks/VESSEL12_01.mhd"
 new_root = "/scratch/cropped_data"
-gif_path = "/scratch/mask_1.gif"
-save_label_as_img("/scratch/VESSEL/Scans/VESSEL12_21.mhd",
-                  "/scratch/VESSEL/Annotations/VESSEL12_21_Annotations.csv",
-                  "/scratch/VESSEL/Labels", save_as_gif=True)
+gif_path = "/scratch/vessel_1.gif"
+#get_array_from_gif(gif_path)
+#save_label_as_img("/scratch/VESSEL/Scans/VESSEL12_21.mhd",
+#                  "/scratch/VESSEL/Annotations/VESSEL12_21_Annotations.csv",
+#                  "/scratch/VESSEL/Labels", save_as_gif=True)
 #crop_dataset("/scratch/VESSEL12/images", "/scratch/VESSEL12/masks", new_root, 352, 480)
 #crop_pair(img_mhd, label_mhd, new_root, 352, 480, save_gif=True)
 #show_img(mhd_path, 100)

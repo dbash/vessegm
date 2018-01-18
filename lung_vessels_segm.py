@@ -1,4 +1,7 @@
 # import remote_config
+import os
+
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 import numpy as np
 import tensorflow as tf
@@ -9,8 +12,8 @@ import matplotlib.pyplot as plt
 
 
 def main():
-    img_folder = "/scratch/VESSEL12/images"
-    label_folder = "/scratch/VESSEL12/masks"
+    img_folder = "/scratch/VESSEL/cropped_data/images"
+    label_folder = "/scratch/VESSEL/cropped_data/masks"
     provider = ldprovider.LungDataProvider(img_folder, label_folder)
     X, y = provider._next_data()
 
@@ -22,10 +25,14 @@ def main():
     img_arr[1].set_title("Label")
     plt.show()
     print("0")
-    net = unet.Unet3D(channels=1, n_class=2)
-    trainer = unet.Trainer(net, batch_size=1, optimizer="momentum", opt_kwargs=dict(momentum=0.2))
+    net = unet.Unet3D(channels=1, n_class=2, cost="dice_coefficient", summaries=False)
+    trainer = unet.Trainer(net, batch_size=1, optimizer="momentum",  norm_grads=True,
+                           opt_kwargs=dict(momentum=0.2, learning_rate=0.01))
     print("1")
-    trainer.train(provider, "./unet3d_trained", epochs=1, training_iters=1)
+    if not os.path.exists("unet3d_trained"):
+        os.path.mkdir("/home/guest/dbash/unet3d_trained")
+    trainer.train(provider, "/home/guest/dbash/unet3d_trained", epochs=10,
+                  training_iters=10, restore=False)
     print("2")
     X_test, y_test = provider._next_data()
     prediction = net.predict("./unet3d_trained/model.cpkt", X_test)
