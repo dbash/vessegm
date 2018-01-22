@@ -12,14 +12,14 @@ class LungDataProvider(BaseDataProvider):
     img_idx = 0
     n_cur_img = -1
     num_slices = 100
-    max_patches = 100
+    max_patches = 50
     id_patch = 0
     lim_x = 100
     lim_y = 100
 
 
-    def _load_data_and_label(self):
-        data, label = self._next_data()
+    def _load_data_and_label(self, balanced=False):
+        data, label = self._next_data(balanced)
 
         train_data = self._process_data(data)
         labels = self._process_labels(label)
@@ -38,14 +38,15 @@ class LungDataProvider(BaseDataProvider):
             ny = label.shape[3]
             labels = np.zeros((1, nz, nx, ny, self.n_class), dtype=np.float32)
 
-            labels[..., 1] = np.ceil(label[..., 0] / (label.max() + 0.0001))
+            labels[..., 1] = label[..., 0]
             labels[..., 0] = 1 - labels[..., 1]
             return labels
 
         return label
 
     def __call__(self, *args, **kwargs):
-        return self._load_data_and_label()
+        balanced = kwargs.get("balanced", False)
+        return self._load_data_and_label(balanced)
 
     def __init__(self, img_folder, label_folder, nx=352, ny=480, a_min=None, a_max=None):
         self.a_min = a_min if a_min is not None else -np.inf
@@ -63,7 +64,13 @@ class LungDataProvider(BaseDataProvider):
         self.ny = self.img_arr.shape[2]
         print("Number of images = %d" % self.n_examples)
 
-    def _next_data(self):
+    def _get_rnd_idx(self):
+        idz = np.random.randint(0, self.nz - self.num_slices - 1)
+        idx = np.random.randint(0, self.nx - self.lim_x - 1)
+        idy = np.random.randint(0, self.ny - self.lim_y - 1)
+        return (idz, idx, idy)
+
+    def _next_data(self, balanced=False):
         print("img #%d" % self.img_idx)
         print("patch #%d" % self.id_patch)
         if self.img_idx >= self.n_examples:
@@ -79,15 +86,25 @@ class LungDataProvider(BaseDataProvider):
             self.ny = self.img_arr.shape[2]
 
         self.id_patch += 1
-        idz = np.random.randint(0, self.nz - self.num_slices - 1)
-        idx = np.random.randint(0, self.nx - self.lim_x - 1)
-        idy = np.random.randint(0, self.ny - self.lim_y - 1)
+        idz, idx, idy = self._get_rnd_idx()
+
+        if balanced:
+            search = True
+            while search:
+                label_patch = self.label_arr[idz:idz + self.num_slices, idx:idx + self.lim_x, idy:idy + self.lim_y]
+                label_patch /= label_patch.max() + 0.00001
+                if label_patch.mean() > 0.1:
+                    print("patch mean = %f" % label_patch.mean())
+                    search = False
+                else:
+                    idz, idx, idy = self._get_rnd_idx()
         print("idz = %d, idx = %d, idy = %d" % (idz, idx, idy))
+
         X = np.reshape(self.img_arr[idz:idz + self.num_slices, idx:idx + self.lim_x, idy:idy + self.lim_y],
                        (1, self.num_slices, self.lim_x, self.lim_y, 1))
         y = np.reshape(self.label_arr[idz:idz + self.num_slices, idx:idx + self.lim_x, idy:idy + self.lim_y],
                        (1, self.num_slices, self.lim_x, self.lim_y, 1))
-
+        y = np.ceil(y/(y.max() + 0.0001))
         #del img_arr, label_arr
 
         return X, y

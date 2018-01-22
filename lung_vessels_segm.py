@@ -25,17 +25,17 @@ def main():
     img_arr[1].set_title("Label")
     plt.show()
     print("0")
-    net = unet.Unet3D(channels=1, n_class=2, cost="dice_coefficient", summaries=False)
-    trainer = unet.Trainer(net, batch_size=1, optimizer="momentum",  norm_grads=True,
-                           opt_kwargs=dict(momentum=0.2, learning_rate=0.01))
+    net = unet.Unet3D(channels=1, n_class=2, cost="cross_entropy", summaries=False)
+    trainer = unet.Trainer(net, batch_size=1, optimizer="adam",  norm_grads=True,
+                           opt_kwargs=dict(learning_rate=0.0001))
     print("1")
     if not os.path.exists("unet3d_trained"):
         os.path.mkdir("/home/guest/dbash/unet3d_trained")
-    trainer.train(provider, "/home/guest/dbash/unet3d_trained", epochs=10,
+    trainer.train(provider, "/home/guest/dbash/unet3d_trained", epochs=60,
                   training_iters=10, restore=False)
     print("2")
     X_test, y_test = provider._next_data()
-    prediction = net.predict("./unet3d_trained/model.cpkt", X_test)
+    prediction = net.predict("/home/guest/dbash/unet3d_trained/model.cpkt", X_test)
     print("3")
 
 

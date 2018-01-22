@@ -503,7 +503,7 @@ class Trainer(object):
 
         return init
 
-    def train(self, data_provider, output_path, training_iters=10, epochs=100, dropout=0.75, display_step=1,
+    def train(self, data_provider, output_path, training_iters=20, epochs=50, dropout=0.5, display_step=8,
               restore=False, write_graph=False, prediction_path='prediction'):
         """
             Lauches the training process
@@ -523,7 +523,7 @@ class Trainer(object):
             return save_path
 
         init = self._initialize(training_iters, output_path, restore, prediction_path)
-        check = tf.add_check_numerics_ops()
+        #check = tf.add_check_numerics_ops()
 
         with tf.Session(config=_gpu_options) as sess:
             if write_graph:
@@ -536,15 +536,15 @@ class Trainer(object):
                 if ckpt and ckpt.model_checkpoint_path:
                     self.net.restore(sess, ckpt.model_checkpoint_path)
 
-            test_x, test_y = data_provider()
+            test_x, test_y = data_provider(balanced=True)
 
 
             pred_shape = self.store_prediction(sess, test_x, test_y, "_init")
 
             summary_writer = tf.summary.FileWriter(os.path.join(output_path, "summary/train"),
                                                    graph=sess.graph)
-            summary_writer_test = tf.summary.FileWriter(os.path.join(output_path, "summary/test"),
-                                                   graph=sess.graph)
+            #summary_writer_test = tf.summary.FileWriter(os.path.join(output_path, "summary/test"),
+            #                                       graph=sess.graph)
             summary_writer_const = tf.summary.FileWriter(os.path.join(output_path, "summary/test_const"),
                                                         graph=sess.graph)
 
@@ -558,7 +558,7 @@ class Trainer(object):
 
                     # Run optimization op (backprop)
                     *_, loss, lr, gradients = sess.run(
-                        (check, self.optimizer, self.net.cost, self.learning_rate_node,
+                        (self.optimizer, self.net.cost, self.learning_rate_node,
                          self.net.gradients_node),
                         feed_dict={self.net.x: batch_x,
                                    self.net.y: crop_to_shape(batch_y, pred_shape),
@@ -570,11 +570,11 @@ class Trainer(object):
                         self.norm_gradients_node.assign(norm_gradients).eval()
 
                     if step % display_step == 0:
-                        val_x, val_y = data_provider()
+                        #val_x, val_y = data_provider(balanced=True)
                         self.output_minibatch_stats(sess, summary_writer, step, batch_x,
                                                     crop_to_shape(batch_y, pred_shape))
-                        self.output_minibatch_stats_test(sess, summary_writer_test, step, val_x,
-                                                    crop_to_shape(val_y, pred_shape))
+                        #self.output_minibatch_stats_test(sess, summary_writer_test, step, val_x,
+                        #                            crop_to_shape(val_y, pred_shape))
                         self.output_minibatch_stats_const(sess, summary_writer_const, step, test_x,
                                                          crop_to_shape(test_y, pred_shape))
 
@@ -600,7 +600,7 @@ class Trainer(object):
         pred_shape = prediction.shape
         y_cropped = crop_to_shape(batch_y, pred_shape)
         x_cropped = crop_to_shape(batch_x, pred_shape)
-        # print(y_cropped.shape, "KKKKKKKKKKKKKK")
+
         loss = sess.run(self.net.cost, feed_dict={self.net.x: batch_x,
                                                   self.net.y: y_cropped,
                                                   self.net.keep_prob: 1.})
@@ -621,8 +621,8 @@ class Trainer(object):
 
     def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y):
         # Calculate batch loss and accuracy
-        check = tf.add_check_numerics_ops()
-        _, summary_str, loss, acc, predictions = sess.run([check, self.summary_op,
+        #check = tf.add_check_numerics_ops()
+        summary_str, loss, acc, predictions = sess.run([ self.summary_op,
                                                         self.net.cost,
                                                         self.net.accuracy,
                                                         self.net.predicter],
@@ -639,8 +639,8 @@ class Trainer(object):
 
     def output_minibatch_stats_test(self, sess, summary_writer, step, batch_x, batch_y):
             # Calculate batch loss and accuracy
-        check = tf.add_check_numerics_ops()
-        _, summary_str, loss, acc, predictions = sess.run([check, self.summary_op,
+        #check = tf.add_check_numerics_ops()
+        summary_str, loss, acc, predictions = sess.run([self.summary_op,
                                                            self.net.cost,
                                                            self.net.accuracy,
                                                            self.net.predicter],
@@ -657,8 +657,8 @@ class Trainer(object):
 
     def output_minibatch_stats_const(self, sess, summary_writer, step, batch_x, batch_y):
             # Calculate batch loss and accuracy
-        check = tf.add_check_numerics_ops()
-        _, summary_str, loss, acc, predictions = sess.run([check, self.summary_op,
+        #check = tf.add_check_numerics_ops()
+        summary_str, loss, acc, predictions = sess.run([ self.summary_op,
                                                            self.net.cost,
                                                            self.net.accuracy,
                                                            self.net.predicter],
