@@ -12,7 +12,7 @@ class LungDataProvider(BaseDataProvider):
     img_idx = 0
     n_cur_img = -1
     num_slices = 100
-    max_patches = 50
+    max_patches = 3
     id_patch = 0
     lim_x = 100
     lim_y = 100
@@ -52,11 +52,11 @@ class LungDataProvider(BaseDataProvider):
         self.a_min = a_min if a_min is not None else -np.inf
         self.a_max = a_max if a_min is not None else np.inf
         super(BaseDataProvider, self).__init__()
-        self.img_list = proc.get_file_list(img_folder, pattern='*.gif')
-        self.label_list = proc.get_file_list(label_folder, pattern='*.gif')
+        self.img_list = proc.get_file_list(img_folder, pattern='*.mhd')
+        self.label_list = proc.get_file_list(label_folder, pattern='*.mhd')
         self.n_examples = len(self.label_list)
-        self.img_arr = proc.get_array_from_gif(self.img_list[0], norm=True)
-        self.label_arr = proc.get_array_from_gif(self.label_list[0], norm=True)
+        self.img_arr = proc.get_image_array(self.img_list[0], normalize=True)
+        self.label_arr = proc.get_image_array(self.label_list[0], normalize=True)
         self.img_idx = 1
         self.id_patch = 0
         self.nz = self.img_arr.shape[0]
@@ -73,13 +73,14 @@ class LungDataProvider(BaseDataProvider):
     def _next_data(self, balanced=False):
         print("img #%d" % self.img_idx)
         print("patch #%d" % self.id_patch)
-        if self.img_idx >= self.n_examples:
-            print("No more images left.")
-            return
+        #if self.img_idx >= self.n_examples:
+        #    print("No more images left.")
+        #    return
         if self.max_patches < self.id_patch:
-            self.img_arr = proc.get_array_from_gif(self.img_list[self.img_idx], norm=True)
-            self.label_arr = proc.get_array_from_gif(self.label_list[self.img_idx], norm=True)
-            self.img_idx += 1
+            self.img_idx = np.random.randint(len(self.img_list))
+            self.img_arr = proc.get_image_array(self.img_list[self.img_idx], normalize=True)
+            self.label_arr = proc.get_image_array(self.label_list[self.img_idx], normalize=True)
+            #self.img_idx += 1
             self.id_patch = 0
             self.nz = self.img_arr.shape[0]
             self.nx = self.img_arr.shape[1]
@@ -95,6 +96,7 @@ class LungDataProvider(BaseDataProvider):
                 label_patch /= label_patch.max() + 0.00001
                 if label_patch.mean() > 0.1:
                     print("patch mean = %f" % label_patch.mean())
+                    proc.show_img_arr(label_patch, slice=50)
                     search = False
                 else:
                     idz, idx, idy = self._get_rnd_idx()

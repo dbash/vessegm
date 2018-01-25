@@ -142,7 +142,7 @@ def cross_entropy(y_, output_map):
 
 ##model##
 
-def create_conv_net(x, keep_prob, channels, n_class, layers=3, features_root=16, filter_size=3,summaries=True, pool_size=2):
+def create_conv_net(x, keep_prob, channels, n_class, layers=3, features_root=32, filter_size=3,summaries=True, pool_size=2):
     """
     Creates a new convolutional unet for the given parametrization.
 
@@ -443,7 +443,7 @@ class Trainer(object):
     def _get_optimizer(self, training_iters, global_step):
         if self.optimizer == "momentum":
             learning_rate = self.opt_kwargs.pop("learning_rate", 0.2)
-            decay_rate = self.opt_kwargs.pop("decay_rate", 0.95)
+            decay_rate = self.opt_kwargs.pop("decay_rate", 0.98)
             momentum = self.opt_kwargs.pop("momentum", 0.2)
 
             self.learning_rate_node = tf.train.exponential_decay(learning_rate=learning_rate,
@@ -503,7 +503,7 @@ class Trainer(object):
 
         return init
 
-    def train(self, data_provider, output_path, training_iters=20, epochs=50, dropout=0.5, display_step=8,
+    def train(self, data_provider, output_path, training_iters=20, epochs=50, dropout=0.75, display_step=10,
               restore=False, write_graph=False, prediction_path='prediction'):
         """
             Lauches the training process
@@ -541,11 +541,11 @@ class Trainer(object):
 
             pred_shape = self.store_prediction(sess, test_x, test_y, "_init")
 
-            summary_writer = tf.summary.FileWriter(os.path.join(output_path, "summary/train"),
+            summary_writer = tf.summary.FileWriter(os.path.join(output_path, "summary/avg_train_round4"),
                                                    graph=sess.graph)
             #summary_writer_test = tf.summary.FileWriter(os.path.join(output_path, "summary/test"),
             #                                       graph=sess.graph)
-            summary_writer_const = tf.summary.FileWriter(os.path.join(output_path, "summary/test_const"),
+            summary_writer_const = tf.summary.FileWriter(os.path.join(output_path, "summary/test_const_round4"),
                                                         graph=sess.graph)
 
             logging.info("Start optimization")
@@ -553,8 +553,12 @@ class Trainer(object):
             avg_gradients = None
             for epoch in range(epochs):
                 total_loss = 0
+                X_list = []
+                y_list = []
                 for step in range((epoch * training_iters), ((epoch + 1) * training_iters)):
                     batch_x, batch_y = data_provider()
+                    X_list.append(batch_x)
+                    y_list.append(batch_y)
 
                     # Run optimization op (backprop)
                     *_, loss, lr, gradients = sess.run(
@@ -571,8 +575,8 @@ class Trainer(object):
 
                     if step % display_step == 0:
                         #val_x, val_y = data_provider(balanced=True)
-                        self.output_minibatch_stats(sess, summary_writer, step, batch_x,
-                                                    crop_to_shape(batch_y, pred_shape))
+                        self.output_minibatch_stats(sess, summary_writer, step, X_list,
+                                                    y_list, pred_shape)
                         #self.output_minibatch_stats_test(sess, summary_writer_test, step, val_x,
                         #                            crop_to_shape(val_y, pred_shape))
                         self.output_minibatch_stats_const(sess, summary_writer_const, step, test_x,
@@ -582,6 +586,7 @@ class Trainer(object):
 
                 self.output_epoch_stats(epoch, total_loss, training_iters, lr)
                 self.store_prediction(sess, test_x, test_y, "epoch_%s" % epoch)
+                #test_x, test_y = data_provider(balanced=True)
 
                 save_path = self.net.save(sess, save_path)
 
@@ -619,22 +624,32 @@ class Trainer(object):
             "Epoch {:}, Average loss: {:.4f}, learning rate: {:.4f}".format(epoch, (total_loss / training_iters),
                                                                             lr))
 
-    def output_minibatch_stats(self, sess, summary_writer, step, batch_x, batch_y):
+    def output_minibatch_stats(self, sess, summary_writer, step, X_list, y_list, pred_shape):
         # Calculate batch loss and accuracy
         #check = tf.add_check_numerics_ops()
-        summary_str, loss, acc, predictions = sess.run([ self.summary_op,
-                                                        self.net.cost,
-                                                        self.net.accuracy,
-                                                        self.net.predicter],
-                                                       feed_dict={self.net.x: batch_x,
-                                                                  self.net.y: batch_y,
-                                                                  self.net.keep_prob: 1.})
+        avg_loss = 0.0
+        avg_acc = 0.0
+
+        n = len(X_list)
+        for i in range(len(X_list)):
+            y = crop_to_shape(y_list[i], pred_shape)
+            summary_str, loss, acc, predictions = sess.run([ self.summary_op,
+                                                            self.net.cost,
+                                                            self.net.accuracy,
+                                                            self.net.predicter],
+                                                            feed_dict={self.net.x: X_list[i],
+                                                                    self.net.y: y,
+                                                                    self.net.keep_prob: 1.})
+            avg_acc += acc
+            avg_loss += loss
+
+        avg_acc /= n
+        avg_loss /= n
         summary_writer.add_summary(summary_str, step)
         summary_writer.flush()
         logging.info(
-            "Iter {:}, Minibatch Loss= {:.4f}, "
-            "Training Accuracy= {:.4f}, "
-            "Minibatch error= {:.1f}%".format(step, loss, acc, error_rate(predictions, batch_y))
+            "Iter {:}, Avg minibatch Loss= {:.4f}, "
+            "Avg training Accuracy= {:.4f} ".format(step, loss, acc)
         )
 
     def output_minibatch_stats_test(self, sess, summary_writer, step, batch_x, batch_y):
@@ -690,7 +705,7 @@ def error_rate(predictions, labels):
     return 100.0 - (
             100.0 *
             np.sum(np.argmax(predictions, 4) == np.argmax(labels, 4)) /
-            (predictions.shape[0] * predictions.shape[1] * predictions.shape[2]* predictions.shape[3]))
+            (predictions.shape[0] * predictions.shape[1] * predictions.shape[2]*predictions.shape[3]))
 
 
 def get_image_summary(img, idx=0):

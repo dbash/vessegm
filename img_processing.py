@@ -108,6 +108,17 @@ def show_img(filepath, slice_idx = 0):
     plt.imshow(img_arr[slice_idx], cmap='gray')
     plt.show()
 
+def show_img_arr(img_arr, slice=50):
+    if (slice>img_arr.shape[0]):
+        return
+    plt.imshow(img_arr[slice], cmap="gray")
+    plt.show()
+
+def show_img_patch(img_arr, size=100, coord):
+    z,x,y = coord
+    plt.imshow(img_arr[z:z+size, x:x+size, y:y+size], cmap="gray")
+    plt.show()
+
 def save_as_gif(filepath,gifpath):
     img = SimpleITK.ReadImage(filepath)
     img_arr = SimpleITK.GetArrayFromImage(img)
@@ -288,6 +299,32 @@ def save_label_as_img(img_mhd, label_csv, out_path, save_as_gif=False):
         print("saved labels into gif file %s." % new_gif)
     del label_arr, img_arr
 
+def inverse_negative(filepath, newfpath):
+    img = get_array_from_gif(filepath)
+    amax = img.max()
+    n_img = img - amax
+    save_array_as_gif(n_img, newfpath)
+    del img, n_img
+
+def mask_image(img_path, mask_path, new_img_path):
+    img = get_image_array(img_path, normalize=True)
+    img_arr_rgb = np.stack((img, img, img), axis=3)
+    mask_arr = get_image_array(mask_path, normalize=True)
+    mshape = mask_arr.shape
+    #print(mshape)
+    #print(np.mean(mask_arr[50]))
+    #plt.imshow(mask_arr[50], cmap='gray')
+    #plt.show()
+    mask_arr_rgb = np.stack((mask_arr, np.zeros(mshape), np.zeros(mshape)), axis=3)
+    new_img = img_arr_rgb
+    new_img[...,0] = max(img_arr_rgb[...,0], mask_arr_rgb[...,0])
+    #print(img_arr_rgb.max(), mask_arr_rgb.max())
+    #print(new_img[100:150, 100:150, 0])
+    save_array_as_gif(new_img, new_img_path)
+    #del new_img, mask_arr, mask_arr_rgb, img_arr_rgb, img
+
+
+
 
 if __name__ == '__main__':
     pass
@@ -299,6 +336,14 @@ img_mhd = "/scratch/VESSEL12/images/01/VESSEL12_01.mhd"
 label_mhd = "/scratch/VESSEL12/masks/VESSEL12_01.mhd"
 new_root = "/scratch/cropped_data"
 gif_path = "/scratch/vessel_1.gif"
+img = "/scratch/vessel_data/VESSEL/cropped_data/images/VESSEL12_13.mhd"
+#img_arr = get_image_array(img, normalize=True)
+#show_img_patch(img_arr, size=100, coord=(162, 152, 231))
+
+#mask_image("/scratch/vessel_data/VESSEL/cropped_data/images/VESSEL12_01.mhd",
+#           "/scratch/vessel_data/VESSEL/cropped_data/masks/VESSEL12_01.mhd",
+#           "/scratch/vessel_data/VESSEL/cropped_data/masked_img/VESSEL12_01.gif")
+#inverse_negative(neg_gif, "/scratch/vessel_data/VESSEL/cropped_data/images/VESSEL12_13_pos.gif")
 #get_array_from_gif(gif_path)
 #save_label_as_img("/scratch/VESSEL/Scans/VESSEL12_21.mhd",
 #                  "/scratch/VESSEL/Annotations/VESSEL12_21_Annotations.csv",
