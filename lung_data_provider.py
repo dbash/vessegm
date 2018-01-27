@@ -53,6 +53,7 @@ class LungDataProvider(BaseDataProvider):
         self.a_max = a_max if a_min is not None else np.inf
         super(BaseDataProvider, self).__init__()
         self.img_list = proc.get_file_list(img_folder, pattern='*.mhd')
+
         self.label_list = proc.get_file_list(label_folder, pattern='*.mhd')
         self.n_examples = len(self.label_list)
         self.img_arr = proc.get_image_array(self.img_list[0], normalize=True)

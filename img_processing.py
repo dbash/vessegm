@@ -114,9 +114,10 @@ def show_img_arr(img_arr, slice=50):
     plt.imshow(img_arr[slice], cmap="gray")
     plt.show()
 
-def show_img_patch(img_arr, size=100, coord):
+def show_img_patch(img_arr,coord=(0,0,0), size=100, slice=50):
     z,x,y = coord
-    plt.imshow(img_arr[z:z+size, x:x+size, y:y+size], cmap="gray")
+    print(img_arr.shape)
+    plt.imshow(img_arr[z+slice, x:x+size, y:y+size], cmap="gray")
     plt.show()
 
 def save_as_gif(filepath,gifpath):
@@ -308,22 +309,28 @@ def inverse_negative(filepath, newfpath):
 
 def mask_image(img_path, mask_path, new_img_path):
     img = get_image_array(img_path, normalize=True)
-    img_arr_rgb = np.stack((img, img, img), axis=3)
-    mask_arr = get_image_array(mask_path, normalize=True)
-    mshape = mask_arr.shape
-    #print(mshape)
-    #print(np.mean(mask_arr[50]))
-    #plt.imshow(mask_arr[50], cmap='gray')
-    #plt.show()
-    mask_arr_rgb = np.stack((mask_arr, np.zeros(mshape), np.zeros(mshape)), axis=3)
-    new_img = img_arr_rgb
-    new_img[...,0] = max(img_arr_rgb[...,0], mask_arr_rgb[...,0])
-    #print(img_arr_rgb.max(), mask_arr_rgb.max())
-    #print(new_img[100:150, 100:150, 0])
+    mask_arr = np.ceil(get_image_array(mask_path, normalize=True)).astype('uint8')
+    mask_image_arr(img, mask_arr, new_img_path)
+
+
+def mask_image_arr(img_arr, mask_arr, new_img_path):
+    img_arr_int = np.ceil(img_arr).astype('uint8')
+    mask_arr_int = np.ceil(mask_arr).astype('uint8')
+    new_img = np.stack((img_arr_int, img_arr_int, img_arr_int), axis=3)
+    nonzero_ind = mask_arr_int > 0
+    new_img[nonzero_ind, 0] = 255
     save_array_as_gif(new_img, new_img_path)
-    #del new_img, mask_arr, mask_arr_rgb, img_arr_rgb, img
 
-
+def double_mask_arr(img_arr, mask1_arr, mask2_arr, new_img_path):
+    img_arr_int = np.ceil(img_arr).astype('uint8')
+    mask1_arr_int = np.ceil(mask1_arr).astype('uint8')
+    mask2_arr_int = np.ceil(mask2_arr).astype('uint8')
+    new_img = np.stack((img_arr_int, img_arr_int, img_arr_int), axis=3)
+    nonzero_1 = mask1_arr_int > 0
+    nonzero_2 = mask2_arr_int > 0
+    new_img[nonzero_1, 0] = 125
+    new_img[nonzero_2, 2] = 125
+    save_array_as_gif(new_img, new_img_path)
 
 
 if __name__ == '__main__':
@@ -336,13 +343,13 @@ img_mhd = "/scratch/VESSEL12/images/01/VESSEL12_01.mhd"
 label_mhd = "/scratch/VESSEL12/masks/VESSEL12_01.mhd"
 new_root = "/scratch/cropped_data"
 gif_path = "/scratch/vessel_1.gif"
-img = "/scratch/vessel_data/VESSEL/cropped_data/images/VESSEL12_13.mhd"
+img = "/scratch/vessel_data/VESSEL/cropped_data/images/VESSEL12_01.mhd"
 #img_arr = get_image_array(img, normalize=True)
-#show_img_patch(img_arr, size=100, coord=(162, 152, 231))
+#show_img_patch(img_arr, size=100, coord=(215, 162, 270))
 
-#mask_image("/scratch/vessel_data/VESSEL/cropped_data/images/VESSEL12_01.mhd",
-#           "/scratch/vessel_data/VESSEL/cropped_data/masks/VESSEL12_01.mhd",
-#           "/scratch/vessel_data/VESSEL/cropped_data/masked_img/VESSEL12_01.gif")
+# mask_image("/scratch/vessel_data/VESSEL/cropped_data/images/VESSEL12_01.mhd",
+#            "/scratch/vessel_data/VESSEL/cropped_data/masks/VESSEL12_01.mhd",
+#            "/scratch/vessel_data/VESSEL/cropped_data/masked_img/VESSEL12_01.gif")
 #inverse_negative(neg_gif, "/scratch/vessel_data/VESSEL/cropped_data/images/VESSEL12_13_pos.gif")
 #get_array_from_gif(gif_path)
 #save_label_as_img("/scratch/VESSEL/Scans/VESSEL12_21.mhd",

@@ -4,7 +4,9 @@ from collections import OrderedDict
 import os
 import shutil
 import logging
+import img_processing as proc
 from tensorflow.python import debug as tf_debug
+import string
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
@@ -389,8 +391,8 @@ class Unet3D(object):
             # Restore model weights from previously saved model
             self.restore(sess, model_path)
 
-            y_dummy = np.empty((x_test.shape[0], x_test.shape[1], x_test.shape[2], x_test.shape[3], self.n_class))
-            prediction = sess.run(self.predicter, feed_dict={self.x: x_test, self.y: y_dummy, self.keep_prob: 1.})
+            # y_dummy = np.empty((x_test.shape[0], x_test.shape[1], x_test.shape[2], x_test.shape[3], self.n_class))
+            prediction = sess.run(self.predicter, feed_dict={self.x: x_test, self.keep_prob: 1.})
 
         return prediction
 
@@ -523,7 +525,7 @@ class Trainer(object):
             return save_path
 
         init = self._initialize(training_iters, output_path, restore, prediction_path)
-        #check = tf.add_check_numerics_ops()
+        # check = tf.add_check_numerics_ops()
 
         with tf.Session(config=_gpu_options) as sess:
             if write_graph:
@@ -551,6 +553,7 @@ class Trainer(object):
             logging.info("Start optimization")
 
             avg_gradients = None
+            tick = 0
             for epoch in range(epochs):
                 total_loss = 0
                 X_list = []
@@ -560,13 +563,34 @@ class Trainer(object):
                     X_list.append(batch_x)
                     y_list.append(batch_y)
 
+                    # !!!
+                    print("testing restore prediction")
+                    prediction = self.net.predict(save_path, batch_x)
+                    cropped_x =  crop_to_shape(batch_x, prediction.shape)
+                    print([(x.max(), x.min(), x.shape)
+                           for x in (cropped_x[0, ..., 0], np.argmax(prediction, 4)[0])])
+                    proc.mask_image_arr(255*cropped_x[0, ..., 0], np.argmax(prediction, 4)[0],
+                                        ''.join(("/home/guest/dbash/masked_img/", str(tick), "_TEST2.gif")))
+
+                    # !!!
+                    exit()
+
                     # Run optimization op (backprop)
-                    *_, loss, lr, gradients = sess.run(
+                    *_, loss, lr, gradients, prediction = sess.run(
                         (self.optimizer, self.net.cost, self.learning_rate_node,
-                         self.net.gradients_node),
+                         self.net.gradients_node, self.net.predicter),
                         feed_dict={self.net.x: batch_x,
                                    self.net.y: crop_to_shape(batch_y, pred_shape),
                                    self.net.keep_prob: dropout})
+                    cropped_x =  crop_to_shape(batch_x, prediction.shape)
+
+                    proc.mask_image_arr(cropped_x[0,...,0], np.argmax(prediction, 4)[0],
+                                        ''.join(("/home/guest/dbash/masked_img/", str(tick), "_pred.gif")))
+                    proc.mask_image_arr(cropped_x[0, ..., 0], crop_to_shape(batch_y, prediction.shape)[0, ..., 1],
+                                        ''.join(("/home/guest/dbash/masked_img/", str(tick), "_gt.gif")))
+                    tick += 1
+
+
 
                     if self.net.summaries and self.norm_grads:
                         avg_gradients = _update_avg_gradients(avg_gradients, gradients, step)

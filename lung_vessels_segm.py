@@ -31,10 +31,30 @@ def main():
     #print("1")
     if not os.path.exists("unet3d_trained"):
         os.path.mkdir("/home/guest/dbash/unet3d_trained")
-    trainer.train(provider, "/home/guest/dbash/unet3d_trained", epochs=50,
+    trainer.train(provider, "/home/guest/dbash/unet3d_trained", epochs=1,
                   training_iters=10, restore=True)
     #print("2")
 
+def test_patch(img_folder,label_folder, new_img_path, net, model_path, coord=(0,0,0), size=100):
+    z, x, y = coord
+    provider = ldprovider.LungDataProvider(img_folder, label_folder)
+    img_arr, label_arr = provider()
+    prediction = net.predict(model_path, img_arr)
+    label_patch = unet.crop_to_shape(label_arr, prediction.shape)
+    err_rate = unet.error_rate(predictions=prediction, labels=label_patch)
+    print("Error rate = %f" % err_rate)
+    cropped_img = 255*unet.crop_to_shape(img_arr, prediction.shape)[0,...,0]
+
+    prediction = np.argmax(prediction, 4)[0]
+    label = np.argmax(label_patch, 4)[0]
+    print(np.sum(prediction))
+    proc.double_mask_arr(cropped_img,
+                        prediction, label, new_img_path)
+    #proc.mask_image_arr(cropped_img,
+    #                    label,
+    #                    "/home/guest/dbash/masked_img/VESSEL12_01_gt_patch.gif")
+    #proc.show_img_arr(prediction, slice=20)
+    return prediction
 
 
 def test(n_ex, model_path):
@@ -59,10 +79,18 @@ def test(n_ex, model_path):
     avg_acc/=n_ex
     print("average accuracy = ", avg_acc)
 
-model_path = "/home/guest/dbash/unet3d_lungs_10pc/unet3d_trained/model.cpkt"
-n_ex = 50
-#test(n_ex, model_path)
-main()
+
+img_path = "/scratch/VESSEL/cropped_data/images"
+mask_path = "/scratch/VESSEL/cropped_data/masks/"
+new_img_path = "/home/guest/dbash/masked_img/MASKED.gif"
+model_path = "/home/guest/dbash/unet3d_trained_25012018/round1/model.cpkt"
+net = unet.Unet3D(channels=1, n_class=2, cost="cross_entropy", summaries=False)
+coord = (np.random.randint(0, 250), np.random.randint(0, 250), np.random.randint(0, 250))
+print("coord =  ", coord)
+test_patch(img_path, mask_path, new_img_path, net, model_path, coord=coord, size=100)
+#(215, 162, 270
+# test(n_ex, model_path)
+# main()
 
 """fig1, ax1 = plt.subplots(1, 3, sharex=True, sharey=True, figsize=(12,5))
 ax1[0].imshow(X_test[0, 100, :, :, 0], aspect="auto")
