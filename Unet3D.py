@@ -543,17 +543,19 @@ class Trainer(object):
 
             pred_shape = self.store_prediction(sess, test_x, test_y, "_init")
 
-            summary_writer = tf.summary.FileWriter(os.path.join(output_path, "summary/avg_train_round4"),
+            summary_writer = tf.summary.FileWriter(os.path.join(output_path, "summary/avg_train_whole_3"),
                                                    graph=sess.graph)
             #summary_writer_test = tf.summary.FileWriter(os.path.join(output_path, "summary/test"),
             #                                       graph=sess.graph)
-            summary_writer_const = tf.summary.FileWriter(os.path.join(output_path, "summary/test_const_round4"),
+            summary_writer_const = tf.summary.FileWriter(os.path.join(output_path, "summary/test_const_whole_3"),
                                                         graph=sess.graph)
 
             logging.info("Start optimization")
 
             avg_gradients = None
-            tick = 0
+            self.tick = 0
+            self.tick_train = 0
+
             for epoch in range(epochs):
                 total_loss = 0
                 X_list = []
@@ -563,17 +565,7 @@ class Trainer(object):
                     X_list.append(batch_x)
                     y_list.append(batch_y)
 
-                    # !!!
-                    print("testing restore prediction")
-                    prediction = self.net.predict(save_path, batch_x)
-                    cropped_x =  crop_to_shape(batch_x, prediction.shape)
-                    print([(x.max(), x.min(), x.shape)
-                           for x in (cropped_x[0, ..., 0], np.argmax(prediction, 4)[0])])
-                    proc.mask_image_arr(255*cropped_x[0, ..., 0], np.argmax(prediction, 4)[0],
-                                        ''.join(("/home/guest/dbash/masked_img/", str(tick), "_TEST2.gif")))
 
-                    # !!!
-                    exit()
 
                     # Run optimization op (backprop)
                     *_, loss, lr, gradients, prediction = sess.run(
@@ -582,15 +574,6 @@ class Trainer(object):
                         feed_dict={self.net.x: batch_x,
                                    self.net.y: crop_to_shape(batch_y, pred_shape),
                                    self.net.keep_prob: dropout})
-                    cropped_x =  crop_to_shape(batch_x, prediction.shape)
-
-                    proc.mask_image_arr(cropped_x[0,...,0], np.argmax(prediction, 4)[0],
-                                        ''.join(("/home/guest/dbash/masked_img/", str(tick), "_pred.gif")))
-                    proc.mask_image_arr(cropped_x[0, ..., 0], crop_to_shape(batch_y, prediction.shape)[0, ..., 1],
-                                        ''.join(("/home/guest/dbash/masked_img/", str(tick), "_gt.gif")))
-                    tick += 1
-
-
 
                     if self.net.summaries and self.norm_grads:
                         avg_gradients = _update_avg_gradients(avg_gradients, gradients, step)
@@ -603,6 +586,7 @@ class Trainer(object):
                                                     y_list, pred_shape)
                         #self.output_minibatch_stats_test(sess, summary_writer_test, step, val_x,
                         #                            crop_to_shape(val_y, pred_shape))
+
                         self.output_minibatch_stats_const(sess, summary_writer_const, step, test_x,
                                                          crop_to_shape(test_y, pred_shape))
 
@@ -667,8 +651,14 @@ class Trainer(object):
             avg_acc += acc
             avg_loss += loss
 
+            if acc < 0.7:
+                proc.double_mask_arr(crop_to_shape(X_list[i], predictions.shape)[0, ..., 0], predictions[0, ..., 1], y[0, ..., 1],
+                                     ''.join(["/home/guest/dbash/masked_img/", "TRAIN_", str(self.tick_train), ".gif"]))
+                self.tick_train += 1
+
         avg_acc /= n
         avg_loss /= n
+
         summary_writer.add_summary(summary_str, step)
         summary_writer.flush()
         logging.info(
@@ -711,6 +701,10 @@ class Trainer(object):
                 "Val Accuracy= {:.4f}, "
                 "Val error= {:.1f}%".format(step, loss, acc, error_rate(predictions, batch_y))
         )
+        proc.double_mask_arr(crop_to_shape(batch_x, predictions.shape)[0, ..., 0], predictions[0, ..., 1],
+                             batch_y[0, ..., 1],
+                             ''.join(["/home/guest/dbash/masked_img/VAL_MASKED_", str(self.tick), ".gif"]))
+        self.tick += 1
 
 
 def _update_avg_gradients(avg_gradients, gradients, step):

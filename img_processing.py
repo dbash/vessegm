@@ -122,7 +122,7 @@ def show_img_patch(img_arr,coord=(0,0,0), size=100, slice=50):
 
 def save_as_gif(filepath,gifpath):
     img = SimpleITK.ReadImage(filepath)
-    img_arr = SimpleITK.GetArrayFromImage(img)
+    img_arr = SimpleITK.GetArrayFromImage(img).astype('uint8')
     n_slices = img.GetSize()[2]
     durn = n_slices*0.0003
     with imageio.get_writer(gifpath, mode='I', duration=durn) as writer:
@@ -133,12 +133,13 @@ def save_as_gif(filepath,gifpath):
 
 def save_array_as_gif(img_arr,gifpath):
     n_slices = img_arr.shape[0]
+    img_arr_int = img_arr.astype('uint8')
     durn = n_slices*0.0003
     with imageio.get_writer(gifpath, mode='I', duration=durn) as writer:
         for i in range(n_slices):
-            writer.append_data(img_arr[i])
+            writer.append_data(img_arr_int[i])
     print("Saved image to %s."%gifpath)
-    del img_arr
+    del img_arr, img_arr_int
 
 def get_array_from_gif(filepath, norm=False):
     img = Image.open(filepath)
@@ -238,6 +239,9 @@ def crop_ROI_limited(img, label, lim_x, lim_y):
     cropped_label = label[:, cx - kx:cx + kx, cy - ky: cy + ky]
     return cropped_img, cropped_label
 
+def save_image_as_mhd(img_arr, mhd_path):
+    new_sitk_img = SimpleITK.GetImageFromArray(img_arr)
+    SimpleITK.WriteImage(new_sitk_img, mhd_path)
 
 def crop_pair(img_mhd, label_mhd,new_root, lim_x, lim_y, save_gif=False):
     if not os.path.exists(new_root):
@@ -323,14 +327,27 @@ def mask_image_arr(img_arr, mask_arr, new_img_path):
 
 def double_mask_arr(img_arr, mask1_arr, mask2_arr, new_img_path):
     img_arr_int = np.ceil(img_arr).astype('uint8')
-    mask1_arr_int = np.ceil(mask1_arr).astype('uint8')
-    mask2_arr_int = np.ceil(mask2_arr).astype('uint8')
+    #mask1_arr_int = np.ceil(mask1_arr).astype('uint8')
+    #mask2_arr_int = np.ceil(mask2_arr).astype('uint8')
     new_img = np.stack((img_arr_int, img_arr_int, img_arr_int), axis=3)
-    nonzero_1 = mask1_arr_int > 0
-    nonzero_2 = mask2_arr_int > 0
+    nonzero_1 = mask1_arr > 0
+    nonzero_2 = mask2_arr > 0
     new_img[nonzero_1, 0] = 125
     new_img[nonzero_2, 2] = 125
     save_array_as_gif(new_img, new_img_path)
+
+
+def crop_segmentation(img_arr, mask_arr, new_img_path):
+    img_arr_int = np.ceil(img_arr).astype('uint8')
+    if img_arr_int.shape[0] > mask_arr.shape[0]:
+        diff = int(np.ceil((img_arr_int.shape[0] - mask_arr.shape[0])/2))
+        img_arr_int = img_arr_int[diff:-diff + 1]
+
+    new_img = np.zeros(img_arr_int.shape) # np.stack((img_arr_int, img_arr_int, img_arr_int), axis=3)
+    nonzero_ind = mask_arr > 0
+    new_img[nonzero_ind] = img_arr_int[nonzero_ind]
+    save_array_as_gif(new_img, new_img_path)
+
 
 
 if __name__ == '__main__':
@@ -344,6 +361,11 @@ label_mhd = "/scratch/VESSEL12/masks/VESSEL12_01.mhd"
 new_root = "/scratch/cropped_data"
 gif_path = "/scratch/vessel_1.gif"
 img = "/scratch/vessel_data/VESSEL/cropped_data/images/VESSEL12_01.mhd"
+img_arr = get_image_array(img, normalize=True)
+mask_arr = get_image_array("/scratch/vessel_data/VESSEL/cropped_data/masked_img/MASKED.mhd")
+mask_arr*=255
+#save_array_as_gif(im_arr, "/scratch/vessel_data/VESSEL/cropped_data/masked_img/MASKED.gif")
+crop_segmentation(img_arr, mask_arr, "/scratch/vessel_data/VESSEL/cropped_data/masked_img/segmented_lungs.gif")
 #img_arr = get_image_array(img, normalize=True)
 #show_img_patch(img_arr, size=100, coord=(215, 162, 270))
 
@@ -355,7 +377,7 @@ img = "/scratch/vessel_data/VESSEL/cropped_data/images/VESSEL12_01.mhd"
 #save_label_as_img("/scratch/VESSEL/Scans/VESSEL12_21.mhd",
 #                  "/scratch/VESSEL/Annotations/VESSEL12_21_Annotations.csv",
 #                  "/scratch/VESSEL/Labels", save_as_gif=True)
-#crop_dataset("/scratch/VESSEL12/images", "/scratch/VESSEL12/masks", new_root, 352, 480)
+#crop_dataset("/scratch/VESSEL12/images", "/scratch/VESSEL12/masks", new_root, 360, 480)
 #crop_pair(img_mhd, label_mhd, new_root, 352, 480, save_gif=True)
 #show_img(mhd_path, 100)
 #save_as_gif(mhd_path, gif_path)

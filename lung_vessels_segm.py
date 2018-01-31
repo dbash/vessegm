@@ -15,7 +15,7 @@ def main():
     img_folder = "/scratch/VESSEL/cropped_data/images"
     label_folder = "/scratch/VESSEL/cropped_data/masks"
     provider = ldprovider.LungDataProvider(img_folder, label_folder)
-    X, y = provider._next_data()
+    X, y = provider()
 
     fig, img_arr = plt.subplots(1, 2, sharey='all')
 
@@ -27,11 +27,11 @@ def main():
     #print("0")
     net = unet.Unet3D(channels=1, n_class=2, cost="cross_entropy", summaries=False)
     trainer = unet.Trainer(net, batch_size=1, optimizer="adam",  norm_grads=True,
-                           opt_kwargs=dict(learning_rate=0.000001))
+                           opt_kwargs=dict(learning_rate=0.0000005))
     #print("1")
     if not os.path.exists("unet3d_trained"):
         os.path.mkdir("/home/guest/dbash/unet3d_trained")
-    trainer.train(provider, "/home/guest/dbash/unet3d_trained", epochs=1,
+    trainer.train(provider, "/home/guest/dbash/unet3d_trained", epochs=50,
                   training_iters=10, restore=True)
     #print("2")
 
@@ -57,6 +57,52 @@ def test_patch(img_folder,label_folder, new_img_path, net, model_path, coord=(0,
     return prediction
 
 
+
+def predict_image(img_path, model_path, new_mhd_path, new_gif_path):
+    net = unet.Unet3D(channels=1, n_class=2, cost="cross_entropy", summaries=False)
+    #provider = ldprovider.LungDataProvider(img_folder, label_folder)
+    x_dummy = np.zeros((1, 100, 100, 100, 1))
+    pred = net.predict(model_path, x_dummy)
+    ps = pred.shape[1]
+    del x_dummy, pred
+
+    img_arr = proc.get_image_array(img_path, normalize=True)
+    img_arr = (img_arr - img_arr.min()) / img_arr.max()
+    nz = int(img_arr.shape[0]//ps)
+    dz = int(np.ceil(0.5*(img_arr.shape[0] % ps)))
+    img_arr = img_arr[dz:dz + ps*nz]
+
+    diff = 100 - ps
+    new_shape = (img_arr.shape[0] + diff, img_arr.shape[1] + diff, img_arr.shape[2] + diff)
+    ext_img_arr = np.zeros(new_shape)
+    d2 = diff//2
+    ext_img_arr[d2:-d2, d2:-d2, d2:-d2] = img_arr
+    id_0, id_1, id_2 = 0, 0, 0
+
+
+    res_img = np.zeros(img_arr.shape)
+    nz, nx, ny = img_arr.shape[0]//ps, img_arr.shape[1]//ps, img_arr.shape[2]//ps
+    for i in range(nz):
+        for j in range(nx):
+            for k in range(ny):
+                img_slice = np.reshape(ext_img_arr[id_0:id_0 + 100, id_1:id_1 + 100, id_2:id_2 + 100],
+                                       (1, 100, 100, 100, 1))
+                pred_slice = net.predict(model_path, img_slice)
+                res_img[id_0:id_0 + ps, id_1: id_1 + ps, id_2: id_2 + ps] = np.argmax(pred_slice, 4)[0]
+                id_2 += ps
+
+            id_2 = 0
+            id_1 += ps
+        id_1 = 0
+        id_0 += ps
+
+    proc.save_array_as_gif(255*res_img, new_gif_path)
+    proc.save_image_as_mhd(res_img, new_mhd_path)
+
+
+
+
+
 def test(n_ex, model_path):
     avg_acc = 0.0
     #n_ex = 50
@@ -80,17 +126,20 @@ def test(n_ex, model_path):
     print("average accuracy = ", avg_acc)
 
 
-img_path = "/scratch/VESSEL/cropped_data/images"
+img_path = "/scratch/vessel_data/VESSEL/cropped_data/images/VESSEL12_01.mhd"
 mask_path = "/scratch/VESSEL/cropped_data/masks/"
-new_img_path = "/home/guest/dbash/masked_img/MASKED.gif"
+new_img_path = "/scratch/vessel_data/VESSEL/cropped_data/masked_img/MASKED.mhd"
+new_gif_path = "/scratch/vessel_data/VESSEL/cropped_data/masked_img/MASKED.gif"
 model_path = "/home/guest/dbash/unet3d_trained_25012018/round1/model.cpkt"
-net = unet.Unet3D(channels=1, n_class=2, cost="cross_entropy", summaries=False)
-coord = (np.random.randint(0, 250), np.random.randint(0, 250), np.random.randint(0, 250))
-print("coord =  ", coord)
-test_patch(img_path, mask_path, new_img_path, net, model_path, coord=coord, size=100)
+#net = unet.Unet3D(channels=1, n_class=2, cost="cross_entropy", summaries=False)
+#coord = (np.random.randint(0, 250), np.random.randint(0, 250), np.random.randint(0, 250))
+#print("coord =  ", coord)
+#test_patch(img_path, mask_path, new_img_path, net, model_path, coord=coord, size=100)
 #(215, 162, 270
 # test(n_ex, model_path)
-# main()
+
+predict_image(img_path, model_path, new_img_path, new_gif_path)
+#main()
 
 """fig1, ax1 = plt.subplots(1, 3, sharex=True, sharey=True, figsize=(12,5))
 ax1[0].imshow(X_test[0, 100, :, :, 0], aspect="auto")

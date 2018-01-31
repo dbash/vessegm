@@ -1,6 +1,7 @@
 import numpy as np
 from image_util import BaseDataProvider
 import img_processing as proc
+from scipy.misc import imresize
 
 
 
@@ -19,7 +20,7 @@ class LungDataProvider(BaseDataProvider):
 
 
     def _load_data_and_label(self, balanced=False):
-        data, label = self._next_data(balanced)
+        data, label = self.next_data_whole() #self._next_data(balanced)
 
         train_data = self._process_data(data)
         labels = self._process_labels(label)
@@ -44,6 +45,7 @@ class LungDataProvider(BaseDataProvider):
 
         return label
 
+
     def __call__(self, *args, **kwargs):
         balanced = kwargs.get("balanced", False)
         return self._load_data_and_label(balanced)
@@ -67,8 +69,8 @@ class LungDataProvider(BaseDataProvider):
 
     def _get_rnd_idx(self):
         idz = np.random.randint(0, self.nz - self.num_slices - 1)
-        idx = np.random.randint(0, self.nx - self.lim_x - 1)
-        idy = np.random.randint(0, self.ny - self.lim_y - 1)
+        idx = np.random.randint(0, self.nx - 2*self.lim_x - 1)
+        idy = np.random.randint(0, self.ny - 2*self.lim_y - 1)
         return (idz, idx, idy)
 
     def _next_data(self, balanced=False):
@@ -93,23 +95,51 @@ class LungDataProvider(BaseDataProvider):
         if balanced:
             search = True
             while search:
-                label_patch = self.label_arr[idz:idz + self.num_slices, idx:idx + self.lim_x, idy:idy + self.lim_y]
+                label_patch = self.label_arr[idz:idz + self.num_slices,
+                              idx:idx + 2*self.lim_x, idy:idy + 2*self.lim_y]
                 label_patch /= label_patch.max() + 0.00001
                 if label_patch.mean() > 0.1:
                     print("patch mean = %f" % label_patch.mean())
-                    proc.show_img_arr(label_patch, slice=50)
+                    # proc.show_img_arr(label_patch, slice=50)
                     search = False
                 else:
                     idz, idx, idy = self._get_rnd_idx()
         print("idz = %d, idx = %d, idy = %d" % (idz, idx, idy))
+        x_full = self.img_arr[idz:idz + self.num_slices, idx:idx + 2*self.lim_x, idy:idy + 2*self.lim_y]
+        y_full = self.label_arr[idz:idz + self.num_slices, idx:idx + 2*self.lim_x, idy:idy + 2*self.lim_y]
 
-        X = np.reshape(self.img_arr[idz:idz + self.num_slices, idx:idx + self.lim_x, idy:idy + self.lim_y],
-                       (1, self.num_slices, self.lim_x, self.lim_y, 1))
-        y = np.reshape(self.label_arr[idz:idz + self.num_slices, idx:idx + self.lim_x, idy:idy + self.lim_y],
-                       (1, self.num_slices, self.lim_x, self.lim_y, 1))
+        x_resized = np.zeros((self.num_slices, self.lim_x, self.lim_y))
+        y_resized = np.zeros((self.num_slices, self.lim_x, self.lim_y))
+
+        for i in range(self.num_slices):
+            x_resized[i, ...] = imresize(x_full[i, ...], 50)
+            y_resized[i, ...] = imresize(y_full[i, ...], 50)
+        del x_full, y_full
+
+        X = np.reshape(x_resized, (1, self.num_slices, self.lim_x, self.lim_y, 1))
+        y = np.reshape(y_resized, (1, self.num_slices, self.lim_x, self.lim_y, 1))
         y = np.ceil(y/(y.max() + 0.0001))
-        #del img_arr, label_arr
+        del x_resized, y_resized
 
+        return X, y
+
+
+    def next_data_whole(self):
+        idz = np.random.randint(0, self.nz - self.num_slices - 1)
+        in_img = np.random.randint(len(self.img_list))
+        print("img # %d, idz = %d" % (in_img, idz))
+        x_full = proc.get_image_array(self.img_list[in_img], normalize=True)[idz:idz + self.num_slices, ...]
+        y_full = proc.get_image_array(self.label_list[in_img], normalize=True)[idz:idz + self.num_slices, ...]
+        x_resized = np.zeros((self.num_slices, self.lim_x, self.lim_y))
+        y_resized = np.zeros((self.num_slices, self.lim_x, self.lim_y))
+        for i in range(self.num_slices):
+            x_resized[i] = imresize(x_full[i], (self.lim_x, self.lim_y))
+            y_resized[i] = imresize(y_full[i], (self.lim_x, self.lim_y))
+
+        X = np.reshape(x_resized, (1, self.num_slices, self.lim_x, self.lim_y, 1))
+        y = np.reshape(y_resized, (1, self.num_slices, self.lim_x, self.lim_y, 1))
+        y = np.ceil(y / (y.max() + 0.0001))
+        del x_full, y_full, x_resized, y_resized
         return X, y
 
 
